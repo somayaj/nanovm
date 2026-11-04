@@ -1,0 +1,15 @@
+services:
+  nanovm:
+    build: .
+    image: nanovm:local
+    container_name: nanovm
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      NANOVM_ENV_FILE: /etc/nanovm/agent.env
+    volumes:
+      - ./.env:/etc/nanovm/agent.env:ro
+    stdin_open: true
+    tty: true
+    command: ["sleep", "infinity"]

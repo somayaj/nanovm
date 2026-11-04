@@ -1,0 +1,6 @@
+.git
+.nanovm
+*.qcow2
+*.iso
+.env
+README.md

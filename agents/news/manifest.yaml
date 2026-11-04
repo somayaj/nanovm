@@ -1,0 +1,8 @@
+id: news
+description: Post RSS headlines to Slack
+runtime: bash
+entry: run.sh
+mode: once
+env:
+  - SLACK_WEBHOOK_URL
+  - NANOVM_TZ

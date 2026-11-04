@@ -1,0 +1,6 @@
+id: example
+description: Smoke test agent (prints hostname and time)
+runtime: bash
+entry: run.sh
+mode: once
+env: []

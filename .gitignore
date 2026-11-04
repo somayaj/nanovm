@@ -1,0 +1,6 @@
+.env
+.nanovm/
+*.qcow2
+*.iso
+*.img
+.DS_Store
