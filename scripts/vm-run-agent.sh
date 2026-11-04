@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Remote-only: run nanovm-run on the guest (agent + Cursor SDK stay on the VM).
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -18,4 +19,11 @@ if [[ ! -f "$KEY" ]]; then
 fi
 
 SSH=(ssh -p "$SSH_PORT" -i "$KEY" -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null)
-"${SSH[@]}" "$REMOTE" "nanovm-run ${CMD} ${AGENT} $(printf '%q ' "$@")"
+
+if ! "${SSH[@]}" -o ConnectTimeout=5 "$REMOTE" true 2>/dev/null; then
+  echo "VM is not reachable on port ${SSH_PORT}; run make up && make status" >&2
+  exit 1
+fi
+
+# Force a TTY on the guest so nanovm-run can prompt (e.g. CURSOR_API_KEY) on the VM.
+"${SSH[@]}" -tt "$REMOTE" "nanovm-run ${CMD} ${AGENT} $(printf '%q ' "$@")"

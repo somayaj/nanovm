@@ -1,0 +1,2 @@
+# News agent uses Python stdlib + Cursor Cloud Agents API (HTTPS).
+# cursor-sdk wheels do not support Alpine (musl); do not pip install cursor-sdk on the VM.
