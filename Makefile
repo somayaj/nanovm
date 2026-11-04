@@ -1,4 +1,4 @@
-.PHONY: deps image seed up down ssh status clean deploy-agent deploy-agents news vm-list vm-run vm-news reset-disk fresh docker-build docker-up docker-down docker-shell docker-news
+.PHONY: deps image seed up down ssh status clean deploy-agent deploy-agents news vm-list vm-run vm-news vm-sync-schedules reset-disk fresh docker-build docker-up docker-down docker-shell docker-news
 
 ALPINE_IMAGE ?= alpine-3.24.2-aarch64-cloudinit-r2.qcow2
 ARCH ?= aarch64
@@ -61,6 +61,10 @@ vm-run:
 
 vm-news:
 	@$(MAKE) vm-run AGENT=news
+
+vm-sync-schedules:
+	@ssh -p $(SSH_PORT) -i $(VM_DIR)/id_ed25519 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+		alpine@127.0.0.1 nanovm-run sync-schedules
 
 news: vm-news
 

@@ -45,4 +45,5 @@ EOF
 fi
 
 "${SSH[@]}" "$REMOTE" 'nanovm-run list'
+"${SSH[@]}" "$REMOTE" 'nanovm-run sync-schedules'
 echo "Deployed agents to VM: make vm-run AGENT=example (or news)"
