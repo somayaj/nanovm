@@ -4,18 +4,92 @@ set -euo pipefail
 
 NANOVM_ROOT="${NANOVM_ROOT:-/opt/nanovm}"
 AGENTS_DIR="${NANOVM_ROOT}/agents"
-GLOBAL_ENV="${NANOVM_ENV_FILE:-/etc/nanovm/agent.env}"
-LOG_DIR="${NANOVM_LOG_DIR:-/var/log/nanovm}"
+
+if [[ "$NANOVM_ROOT" == /opt/nanovm ]]; then
+  GLOBAL_ENV="${NANOVM_ENV_FILE:-/etc/nanovm/agent.env}"
+  AGENT_ENV_DIR="${NANOVM_AGENT_ENV_DIR:-/etc/nanovm/agents}"
+  LOG_DIR="${NANOVM_LOG_DIR:-/var/log/nanovm}"
+  STATE_DIR="${NANOVM_STATE_DIR:-/var/run/nanovm}"
+else
+  GLOBAL_ENV="${NANOVM_ENV_FILE:-${NANOVM_ROOT}/.env}"
+  AGENT_ENV_DIR="${NANOVM_AGENT_ENV_DIR:-${NANOVM_ROOT}/.nanovm/agents}"
+  LOG_DIR="${NANOVM_LOG_DIR:-${NANOVM_ROOT}/.nanovm/logs}"
+  STATE_DIR="${NANOVM_STATE_DIR:-${NANOVM_ROOT}/.nanovm/run}"
+fi
+
 RUN_USER="${NANOVM_RUN_USER:-alpine}"
 
 manifest_field() {
   local file=$1 key=$2
-  grep -E "^${key}:" "$file" 2>/dev/null | head -1 | sed -E 's/^[^:]+:\s*//' | tr -d '"'"'"
+  # BSD sed (macOS) does not treat \s as whitespace; use [[:space:]].
+  grep -E "^${key}:" "$file" 2>/dev/null | head -1 \
+    | sed -E 's/^[^:]+:[[:space:]]*//' \
+    | sed -E 's/[[:space:]]+$//' \
+    | tr -d '"'"'"
 }
 
 manifest_env_keys() {
   local file=$1
   awk '/^env:/{e=1;next} e && /^  - /{print $2} e && /^[^ ]/ && !/^  -/{e=0}' "$file"
+}
+
+manifest_has_cursor() {
+  grep -qE '^cursor:' "$1"
+}
+
+cursor_model_from_manifest() {
+  awk '/^cursor:/{c=1;next} c && /^  model:/{print $2; exit} c && /^[^ ]/ && !/^ /{c=0}' "$1"
+}
+
+write_agent_env_kv() {
+  local id=$1 key=$2
+  local f="${AGENT_ENV_DIR}/${id}.env"
+  mkdir -p "$AGENT_ENV_DIR"
+  python3 - "$f" "$key" <<'PY'
+import os
+import sys
+
+path, key = sys.argv[1], sys.argv[2]
+val = os.environ.get(key, "")
+lines: list[str] = []
+if os.path.isfile(path):
+    with open(path, encoding="utf-8") as fp:
+        for line in fp:
+            if not line.startswith(key + "="):
+                lines.append(line.rstrip("\n"))
+lines.append(f"{key}={val}")
+with open(path, "w", encoding="utf-8") as fp:
+    fp.write("\n".join(lines) + "\n")
+os.chmod(path, 0o600)
+PY
+}
+
+ensure_cursor_api_key() {
+  local id=$1 mf=$2
+  manifest_has_cursor "$mf" || return 0
+  export CURSOR_MODEL="${CURSOR_MODEL:-$(cursor_model_from_manifest "$mf")}"
+  export CURSOR_MODEL="${CURSOR_MODEL:-composer-2.5}"
+  if [[ -n "${CURSOR_API_KEY:-}" ]]; then
+    return 0
+  fi
+  if [[ ! -t 0 ]]; then
+    echo "CURSOR_API_KEY is not set on this VM." >&2
+    echo "From the VM shell: nanovm-run run ${id}" >&2
+    echo "Or from your Mac: make vm-news  (SSH with TTY to this guest)" >&2
+    echo "Or create ${AGENT_ENV_DIR}/${id}.env with CURSOR_API_KEY=..." >&2
+    return 1
+  fi
+  echo ""
+  echo "=== Cursor API key (Composer ${CURSOR_MODEL}) ==="
+  echo "Create one: https://cursor.com/dashboard/integrations"
+  read -rsp "CURSOR_API_KEY: " CURSOR_API_KEY
+  echo ""
+  if [[ -z "${CURSOR_API_KEY}" ]]; then
+    echo "empty key; aborting" >&2
+    return 1
+  fi
+  export CURSOR_API_KEY
+  write_agent_env_kv "$id" CURSOR_API_KEY
 }
 
 load_env_for_agent() {
@@ -26,7 +100,7 @@ load_env_for_agent() {
     source "$GLOBAL_ENV"
     set +a
   fi
-  local per_agent="/etc/nanovm/agents/${id}.env"
+  local per_agent="${AGENT_ENV_DIR}/${id}.env"
   if [[ -f "$per_agent" ]]; then
     set -a
     # shellcheck disable=SC1090
@@ -41,7 +115,7 @@ check_required_env() {
   while read -r key; do
     [[ -z "$key" ]] && continue
     if [[ -z "${!key:-}" ]]; then
-      echo "missing env: $key (set in ${GLOBAL_ENV} or /etc/nanovm/agents/<id>.env)" >&2
+      echo "missing env: $key (set in ${GLOBAL_ENV} or ${AGENT_ENV_DIR}/<id>.env)" >&2
       missing=1
     fi
   done < <(manifest_env_keys "$file")
@@ -81,6 +155,7 @@ run_agent() {
   mode=$(manifest_field "$mf" mode)
 
   load_env_for_agent "$id"
+  ensure_cursor_api_key "$id" "$mf" || exit 1
   check_required_env "$mf" || exit 1
 
   local entry_path="${dir}/${entry}"
@@ -90,31 +165,47 @@ run_agent() {
   fi
   chmod +x "$entry_path" 2>/dev/null || true
 
-  mkdir -p "$LOG_DIR"
-  local log="${LOG_DIR}/${id}.log"
-
-  run_once() {
+  run_once_body() {
     cd "$dir"
+    if [[ -d "${NANOVM_ROOT}/venv/bin" ]]; then
+      export PATH="${NANOVM_ROOT}/venv/bin:${PATH}"
+    fi
     case "$runtime" in
-      bash) exec bash "$entry" "$@" ;;
-      python3) exec python3 "$entry" "$@" ;;
-      *) exec "$entry_path" "$@" ;;
+      bash) bash "$entry" "$@" ;;
+      python3) python3 "$entry" "$@" ;;
+      *) "$entry_path" "$@" ;;
     esac
   }
 
   case "$mode" in
     once)
-      run_once "$@"
+      mkdir -p "$LOG_DIR"
+      local log="${LOG_DIR}/${id}.log"
+      local out rc
+      out=$(mktemp -t "nanovm-${id}.XXXXXX")
+      set +e
+      run_once_body "$@" >"$out" 2>&1
+      rc=$?
+      set -e
+      {
+        echo "=== $(date -u +'%Y-%m-%dT%H:%M:%SZ') nanovm-run run ${id} ==="
+        cat "$out"
+        echo "=== exit ${rc} @ $(date -u +'%Y-%m-%dT%H:%M:%SZ') ==="
+      } | tee -a "$log"
+      rm -f "$out"
+      exit "$rc"
       ;;
     daemon)
-      mkdir -p /var/run/nanovm
-      if [[ -f "/var/run/nanovm/${id}.pid" ]] && kill -0 "$(cat "/var/run/nanovm/${id}.pid")" 2>/dev/null; then
-        echo "agent ${id} already running (pid $(cat "/var/run/nanovm/${id}.pid"))"
+      mkdir -p "$LOG_DIR" "$STATE_DIR"
+      local log="${LOG_DIR}/${id}.log"
+      local pidfile="${STATE_DIR}/${id}.pid"
+      if [[ -f "$pidfile" ]] && kill -0 "$(cat "$pidfile")" 2>/dev/null; then
+        echo "agent ${id} already running (pid $(cat "$pidfile"))"
         exit 0
       fi
       nohup "$0" _exec "$id" "$@" >>"$log" 2>&1 &
-      echo $! >"/var/run/nanovm/${id}.pid"
-      echo "started agent ${id} (pid $(cat /var/run/nanovm/${id}.pid)), log ${log}"
+      echo $! >"$pidfile"
+      echo "started agent ${id} (pid $(cat "$pidfile")), log ${log}"
       ;;
     *)
       echo "unknown mode in manifest: ${mode}" >&2
@@ -125,7 +216,7 @@ run_agent() {
 
 cmd_stop() {
   local id=$1
-  local pidfile="/var/run/nanovm/${id}.pid"
+  local pidfile="${STATE_DIR}/${id}.pid"
   if [[ ! -f "$pidfile" ]]; then
     echo "agent ${id} not running"
     return 0
@@ -162,6 +253,7 @@ main() {
       entry=$(manifest_field "$mf" entry)
       runtime=$(manifest_field "$mf" runtime)
       load_env_for_agent "$id"
+      ensure_cursor_api_key "$id" "$mf" || exit 1
       cd "$dir"
       case "$runtime" in
         bash) exec bash "$entry" "$@" ;;

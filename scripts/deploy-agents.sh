@@ -18,7 +18,7 @@ fi
 SSH=(ssh -p "$SSH_PORT" -i "$KEY" -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null)
 SCP=(scp -P "$SSH_PORT" -i "$KEY" -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null)
 
-"${SSH[@]}" "$REMOTE" 'doas mkdir -p /opt/nanovm /etc/nanovm/agents /var/log/nanovm /var/run/nanovm && doas chown -R alpine:alpine /opt/nanovm /var/log/nanovm /var/run/nanovm'
+"${SSH[@]}" "$REMOTE" 'doas mkdir -p /opt/nanovm /etc/nanovm/agents /var/log/nanovm /var/run/nanovm && doas chown -R alpine:alpine /opt/nanovm /var/log/nanovm /var/run/nanovm /etc/nanovm/agents && doas chmod 700 /etc/nanovm/agents'
 
 TMP=$(mktemp -t nanovm-agents.XXXXXX.tar.gz)
 trap 'rm -f "$TMP"' EXIT
@@ -29,6 +29,10 @@ tar czf "$TMP" -C "$ROOT" platform agents
 "${SSH[@]}" "$REMOTE" 'doas find /opt/nanovm/agents -type f \( -name "*.sh" -o -name "nanovm-run" \) -exec chmod +x {} +'
 "${SSH[@]}" "$REMOTE" 'doas chmod +x /opt/nanovm/platform/nanovm-run'
 "${SSH[@]}" "$REMOTE" 'doas ln -sf /opt/nanovm/platform/nanovm-run /usr/local/bin/nanovm-run'
+
+echo "Ensuring python3 on VM (Composer via Cursor Cloud API)..."
+chmod +x "${ROOT}/scripts/install-vm-python-deps.sh"
+"${ROOT}/scripts/install-vm-python-deps.sh"
 
 if [[ -f "$ENV_FILE" ]]; then
   # shellcheck disable=SC1090
