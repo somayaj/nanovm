@@ -44,8 +44,12 @@ clean:
 deploy-agent: deploy-agents
 
 deploy-agents:
-	@chmod +x scripts/deploy-agents.sh platform/nanovm-run agents/*/*.sh
+	@chmod +x scripts/deploy-agents.sh scripts/install-vm-python-deps.sh platform/nanovm-run agents/*/*.sh
 	@./scripts/deploy-agents.sh
+
+install-vm-deps:
+	@chmod +x scripts/install-vm-python-deps.sh
+	@./scripts/install-vm-python-deps.sh
 
 vm-list:
 	@ssh -p $(SSH_PORT) -i $(VM_DIR)/id_ed25519 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
@@ -58,9 +62,7 @@ vm-run:
 vm-news:
 	@$(MAKE) vm-run AGENT=news
 
-news:
-	@chmod +x platform/nanovm-run agents/news/run.sh
-	@NANOVM_ROOT="$(CURDIR)" NANOVM_ENV_FILE="$(CURDIR)/.env" ./platform/nanovm-run run news
+news: vm-news
 
 docker-build:
 	docker compose build

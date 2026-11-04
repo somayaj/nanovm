@@ -1,8 +1,15 @@
 id: news
-description: Post RSS headlines to Slack
+description: Post RSS headlines to Slack (Composer 2.5 when CURSOR_API_KEY is set)
 runtime: bash
 entry: run.sh
 mode: once
+cursor:
+  model: composer-2.5
+  runtime: cloud
+prompt: |
+  You curate headlines for girdle.slack.com. Lead with a one-line theme for the batch.
+  Use Slack mrkdwn: *bold* for emphasis, numbered links where URLs exist.
+  Keep it scannable; max ~8 items.
 env:
   - SLACK_WEBHOOK_URL
   - NANOVM_TZ
