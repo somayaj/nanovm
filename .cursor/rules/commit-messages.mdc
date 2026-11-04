@@ -1,0 +1,16 @@
+---
+description: Commit message format for this repository
+alwaysApply: true
+---
+
+Do not use `CN-*` prefixes in commit messages.
+
+Use conventional prefixes:
+
+- `feat:` — new capability
+- `fix:` — bug fix (not `bugfix:`)
+- `docs:` — documentation only
+- `chore:` — tooling, deps, repo maintenance
+- `refactor:` — behavior-preserving code change
+
+Example: `feat: add nanovm-run dispatcher for QEMU guests`
