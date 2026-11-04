@@ -37,9 +37,21 @@ Inside the VM:
 ```bash
 nanovm-run list
 nanovm-run run news
-nanovm-run daemon <id>    # if manifest mode is daemon
+nanovm-run sync-schedules   # install cron from manifest schedule: blocks
+nanovm-run daemon <id>      # if manifest mode is daemon
 nanovm-run stop <id>
 ```
+
+Agent cron is configured in each `agents/<id>/manifest.yaml`:
+
+```yaml
+schedule:
+  cron: "0 8 * * 1-5"
+  timezone: America/Chicago
+  enabled: true
+```
+
+After editing, run `make deploy-agents` or `make vm-sync-schedules`.
 
 Logs: `/var/log/nanovm/<agent-id>.log`
 
